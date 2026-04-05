@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import math
 from typing import Final
@@ -71,7 +70,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             coordinator = entry_data[CONF_COORDINATORS][d]
             entity = GoveeLifeLight(hass, entry, coordinator, device_cfg, platform=platform)
             entities.append(entity)
-            await asyncio.sleep(0)
+            if entity._segment_count > 1:
+                for seg_idx in range(entity._segment_count):
+                    seg_entity = GoveeLifeSegmentLight(
+                        hass, entry, coordinator, device_cfg, segment_index=seg_idx
+                    )
+                    entities.append(seg_entity)
         except Exception as e:
             _LOGGER.error(
                 "%s - async_setup_entry %s: Setup device failed: %s (%s.%s)",
@@ -117,6 +121,9 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity, RestoreEntity):
         self._dynamic_scenes = []
         self._scene_value_map = {}
         self._diy_scenes = []
+        self._segment_count = 0
+        self._support_segmented_rgb = False
+        self._support_segmented_brightness = False
 
         _LOGGER.info("%s - %s: Device capabilities:", self._api_id, self._identifier)
         for cap in self._device_cfg.get("capabilities", []):
@@ -197,13 +204,24 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity, RestoreEntity):
                 elif cap["type"] == "devices.capabilities.dynamic_setting":
                     _LOGGER.debug("%s - %s: Found dynamic_setting capability", self._api_id, self._identifier)
                     pass  # TO-BE-DONE: implement as select ? unsure about setting effect
+                elif cap["type"] == "devices.capabilities.segment_color_setting":
+                    if cap["instance"] == "segmentedColorRgb":
+                        self._support_segmented_rgb = True
+                        seg_field = next((f for f in cap["parameters"]["fields"] if f["fieldName"] == "segment"), {})
+                        self._segment_count = max(self._segment_count or 0, seg_field.get("size", {}).get("max", 0))
+                        _LOGGER.info("%s - %s: Segmented RGB support enabled, segment_count=%d", self._api_id, self._identifier, self._segment_count)
+                    elif cap["instance"] == "segmentedBrightness":
+                        self._support_segmented_brightness = True
+                        seg_field = next((f for f in cap["parameters"]["fields"] if f["fieldName"] == "segment"), {})
+                        self._segment_count = max(self._segment_count or 0, seg_field.get("size", {}).get("max", 0))
+                        _LOGGER.info("%s - %s: Segmented brightness support enabled, segment_count=%d", self._api_id, self._identifier, self._segment_count)
                 else:
                     _LOGGER.debug(
                         "%s - %s: _init_platform_specific: cap unhandled: %s", self._api_id, self._identifier, cap
                     )
 
             _LOGGER.info(
-                "%s - %s: Final state - scenes=%s (%d scenes), brightness=%s, color=%s, color_temp=%s",
+                "%s - %s: Final state - scenes=%s (%d scenes), brightness=%s, color=%s, color_temp=%s, segment_count=%d, segmented_rgb=%s, segmented_brightness=%s",
                 self._api_id,
                 self._identifier,
                 self._support_scenes,
@@ -211,6 +229,9 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity, RestoreEntity):
                 self._support_brightness,
                 self._support_color,
                 self._support_color_temp,
+                self._segment_count,
+                self._support_segmented_rgb,
+                self._support_segmented_brightness,
             )
 
         except Exception as e:
@@ -606,4 +627,147 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity, RestoreEntity):
                 str(e),
                 e.__class__.__module__,
                 type(e).__name__,
+            )
+
+
+class GoveeLifeSegmentLight(GoveeLifeLight):
+    """Represents a single controllable segment of a multi-segment Govee light."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, coordinator, device_cfg, segment_index: int, **kwargs):
+        self._segment_index = segment_index
+        kwargs["platform"] = f"light_seg{segment_index}"
+        super().__init__(hass, entry, coordinator, device_cfg, **kwargs)
+        self._name = f"{device_cfg.get('deviceName')} Segment {segment_index + 1}"
+        self.uniqueid = self._identifier + f"_seg{segment_index}"
+
+    @property
+    def supported_color_modes(self) -> set[ColorMode] | set[str] | None:
+        """Flag supported color modes for this segment."""
+        modes = set()
+        if self._support_segmented_rgb:
+            modes.add(ColorMode.RGB)
+        elif self._support_segmented_brightness:
+            modes.add(ColorMode.BRIGHTNESS)
+        else:
+            modes.add(ColorMode.ONOFF)
+        return modes
+
+    @property
+    def color_mode(self) -> ColorMode | str | None:
+        """Return the color mode of this segment."""
+        if self._support_segmented_rgb:
+            return ColorMode.RGB
+        elif self._support_segmented_brightness:
+            return ColorMode.BRIGHTNESS
+        return ColorMode.ONOFF
+
+    @property
+    def brightness(self) -> int | None:
+        """Return the current brightness of this segment."""
+        if not self._support_segmented_brightness:
+            return None
+        value = GoveeAPI_GetCachedStateValue(
+            self.hass,
+            self._entry_id,
+            self._device_cfg.get("device"),
+            "devices.capabilities.segment_color_setting",
+            "segmentedBrightness",
+        )
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict) and self._segment_index in item.get("segment", []):
+                    return value_to_brightness((0, 100), item.get("brightness", 0))
+        return None
+
+    @property
+    def rgb_color(self) -> tuple[int, int, int] | None:
+        """Return the RGB color of this segment."""
+        if not self._support_segmented_rgb:
+            return None
+        value = GoveeAPI_GetCachedStateValue(
+            self.hass,
+            self._entry_id,
+            self._device_cfg.get("device"),
+            "devices.capabilities.segment_color_setting",
+            "segmentedColorRgb",
+        )
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict) and self._segment_index in item.get("segment", []):
+                    return self._getRGBfromI(item.get("rgb"))
+        return None
+
+    @property
+    def state(self) -> str | None:
+        """Return the current state of this segment."""
+        if self._support_segmented_brightness:
+            b = self.brightness
+            if b is not None:
+                return STATE_ON if b > 0 else STATE_OFF
+        if self._support_segmented_rgb:
+            rgb = self.rgb_color
+            if rgb is not None:
+                return STATE_OFF if rgb == (0, 0, 0) else STATE_ON
+        return super().state
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Async: Turn segment on."""
+        try:
+            if ATTR_RGB_COLOR in kwargs and self._support_segmented_rgb:
+                rgb_int = self._getIfromRGB(kwargs[ATTR_RGB_COLOR])
+                cap = {
+                    "type": "devices.capabilities.segment_color_setting",
+                    "instance": "segmentedColorRgb",
+                    "value": {"segment": [self._segment_index], "rgb": rgb_int},
+                }
+                if await async_GoveeAPI_ControlDevice(self.hass, self._entry_id, self._device_cfg, cap):
+                    self.async_write_ha_state()
+            elif ATTR_BRIGHTNESS in kwargs and self._support_segmented_brightness:
+                bval = math.ceil(brightness_to_value((0, 100), kwargs[ATTR_BRIGHTNESS]))
+                cap = {
+                    "type": "devices.capabilities.segment_color_setting",
+                    "instance": "segmentedBrightness",
+                    "value": {"segment": [self._segment_index], "brightness": bval},
+                }
+                if await async_GoveeAPI_ControlDevice(self.hass, self._entry_id, self._device_cfg, cap):
+                    self.async_write_ha_state()
+            else:
+                # No specific segment attribute — turn on the parent device if it's off
+                if not self.is_on:
+                    await super().async_turn_on(**kwargs)
+        except Exception as e:
+            _LOGGER.error(
+                "%s - %s: async_turn_on (segment %d) failed: %s",
+                self._api_id,
+                self._identifier,
+                self._segment_index,
+                e,
+            )
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Async: Turn segment off."""
+        try:
+            if self._support_segmented_brightness:
+                cap = {
+                    "type": "devices.capabilities.segment_color_setting",
+                    "instance": "segmentedBrightness",
+                    "value": {"segment": [self._segment_index], "brightness": 0},
+                }
+                if await async_GoveeAPI_ControlDevice(self.hass, self._entry_id, self._device_cfg, cap):
+                    self.async_write_ha_state()
+            elif self._support_segmented_rgb:
+                cap = {
+                    "type": "devices.capabilities.segment_color_setting",
+                    "instance": "segmentedColorRgb",
+                    "value": {"segment": [self._segment_index], "rgb": 0},
+                }
+                if await async_GoveeAPI_ControlDevice(self.hass, self._entry_id, self._device_cfg, cap):
+                    self.async_write_ha_state()
+        except Exception as e:
+            _LOGGER.error(
+                "%s - %s: async_turn_off (segment %d) failed: %s",
+                self._api_id,
+                self._identifier,
+                self._segment_index,
+                e,
             )

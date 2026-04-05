@@ -7,6 +7,6 @@
   "documentation": "https://github.com/disforw/goveelife",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/disforw/goveelife/issues",
-  "requirements": ["requests>=2.31.0"],
+  "requirements": ["aiohttp>=3.9.0"],
   "version": "3.1.0"
 }

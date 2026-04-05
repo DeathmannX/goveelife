@@ -143,29 +143,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     try:
         _LOGGER.debug("Unloading config entry: %s", entry.entry_id)
-        all_ok = True
 
-        # Unload platforms
-        for platform in SUPPORTED_PLATFORMS:
-            _LOGGER.debug("%s - async_unload_entry: unload platform: %s", entry.entry_id, platform)
-            platform_ok = await hass.config_entries.async_forward_entry_unload(entry, platform)
-            if not platform_ok:
-                _LOGGER.error(
-                    "%s - async_unload_entry: failed to unload: %s (%s)", entry.entry_id, platform, platform_ok
-                )
-                all_ok = platform_ok
+        # Unload all platforms at once using the modern HA API
+        all_ok = await hass.config_entries.async_unload_platforms(entry, SUPPORTED_PLATFORMS)
 
         if all_ok:
-            # Remove entities from the entity registry
-            entity_registry = hass.helpers.entity_registry.async_get()
-            entities = hass.helpers.entity_registry.async_entries_for_config_entry(entity_registry, entry.entry_id)
-            for entity in entities:
-                _LOGGER.debug("%s - async_unload_entry: removing entity: %s", entry.entry_id, entity.entity_id)
-                entity_registry.async_remove(entity.entity_id)
-
             # Unload option updates listener
             _LOGGER.debug(
-                "%s - async_unload_entry: Unload option updates listener: %s.%s ", entry.entry_id, FUNC_OPTION_UPDATES
+                "%s - async_unload_entry: Unload option updates listener: %s ", entry.entry_id, FUNC_OPTION_UPDATES
             )
             hass.data[DOMAIN][entry.entry_id][FUNC_OPTION_UPDATES]()
 

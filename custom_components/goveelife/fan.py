@@ -1,4 +1,4 @@
-"""Sensor entities for the Govee Life integration."""
+"""Fan entities for the Govee Life integration."""
 
 import asyncio
 import logging
@@ -6,6 +6,7 @@ import logging
 from homeassistant.components.fan import FanEntity, FanEntityFeature
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    CONF_DEVICES,
     STATE_OFF,
     STATE_ON,
     STATE_UNKNOWN,
@@ -33,7 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     try:
         _LOGGER.debug("%s - async_setup_entry %s: Getting cloud devices from data store", entry.entry_id, PLATFORM)
         entry_data = hass.data[DOMAIN][entry.entry_id]
-        api_devices = entry_data.get("devices", [])
+        api_devices = entry_data.get(CONF_DEVICES, [])
     except Exception as e:
         _LOGGER.error(
             "%s - async_setup_entry %s: Getting cloud devices from data store failed: %s (%s.%s)",
@@ -55,7 +56,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             coordinator = entry_data[CONF_COORDINATORS][device_id]
             entity = GoveeLifeFan(hass, entry, coordinator, device_cfg, platform=PLATFORM)
             entities.append(entity)
-            await asyncio.sleep(0)
         except Exception as e:
             _LOGGER.error(
                 "%s - async_setup_entry %s: Setup device failed: %s (%s.%s)",
@@ -77,22 +77,10 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
     """Fan class for Govee Life integration."""
 
     # Sleep mode percentage - half of Low speed (33% / 2 = 16%)
-    # This ensures Sleep mode shows on the speed slider and doesn't appear as 'Off'
     SLEEP_MODE_PERCENTAGE = 16
 
     # Use 1% step to ensure slider display instead of buttons
-    # This accommodates Sleep (16%), Low (33%), Medium (66%), and High (100%)
     _attr_percentage_step = 1.0
-
-    _state_mapping = {}
-    _state_mapping_set = {}
-    _ordered_named_fan_speeds = []  # Ordered list of speed names (e.g., ['Low', 'Medium', 'High'])
-    _speed_mapping = {}  # Maps modeValue to speed name
-    _speed_name_to_mode_value = {}  # Maps speed name to modeValue
-    _manual_work_mode = 1  # Default Manual workMode value
-    _sleep_work_mode = None  # Sleep mode workMode value (typically 5)
-    _attr_supported_features = 0
-    _device_sku = None  # Device SKU for model-specific handling
 
     # H7120-specific: workMode directly maps to speed/mode
     _h7120_work_mode_mapping = {
@@ -109,6 +97,20 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
         100: 3,  # High
         16: 5,  # Sleep
     }
+
+    def __init__(self, hass, entry, coordinator, device_cfg, **kwargs):
+        """Initialize the fan entity."""
+        # Instance-level mutable defaults (H-2 fix)
+        self._state_mapping = {}
+        self._state_mapping_set = {}
+        self._ordered_named_fan_speeds = []
+        self._speed_mapping = {}
+        self._speed_name_to_mode_value = {}
+        self._manual_work_mode = 1
+        self._sleep_work_mode = None
+        self._attr_supported_features = 0
+        self._device_sku = None
+        super().__init__(hass, entry, coordinator, device_cfg, **kwargs)
 
     def _init_platform_specific(self, **kwargs) -> None:
         """Platform specific initialization actions."""
@@ -157,7 +159,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
                         for workOption in capFieldWork.get("options", []):
                             self._attr_preset_modes_mapping[workOption["name"]] = workOption["value"]
                             # Track Manual mode workMode value (typically 1)
-                            # Common names for manual mode: 'Manual', 'gearMode'
                             if workOption["name"].lower() in ["manual", "gearmode"]:
                                 manual_work_mode = workOption["value"]
                                 _LOGGER.debug(
@@ -180,8 +181,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
 
                                     # Add Manual preset
                                     self._attr_preset_modes.append("Manual")
-                                    # Manual defaults to High (last gear mode in the ordered list)
-                                    # Note: Assumes gear_modes are ordered from low to high (e.g., Low, Medium, High)
                                     if gear_modes:
                                         self._attr_preset_modes_mapping_set["Manual"] = {
                                             "workMode": manual_work_mode,
@@ -196,7 +195,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
                                         )
                             elif valueOption["name"] != "Custom":
                                 # Add other modes like Sleep as presets
-                                # The workMode value should come from the mapping we built earlier
                                 work_mode_value = self._attr_preset_modes_mapping.get(valueOption["name"])
                                 if work_mode_value is not None:
                                     self._attr_preset_modes.append(valueOption["name"])
@@ -223,10 +221,8 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
 
                 # Map gear modes to ordered list for percentage conversion
                 if gear_modes:
-                    # Store manual_work_mode for later use (only if found)
                     if manual_work_mode is not None:
                         self._manual_work_mode = manual_work_mode
-                    # Create ordered list of speed names and mappings
                     for gear in gear_modes:
                         self._ordered_named_fan_speeds.append(gear["name"])
                         self._speed_mapping[gear["value"]] = gear["name"]
@@ -303,7 +299,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
     @property
     def preset_mode(self) -> str | None:
         """Return the preset_mode of the entity."""
-        # If device is off, return 'Off' preset
         if not self.is_on:
             return "Off"
 
@@ -314,7 +309,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
             _LOGGER.debug("%s - %s: preset_mode: No work_mode value from cache", self._api_id, self._identifier)
             return STATE_UNKNOWN
 
-        # Handle case where value is not a dict
         if not isinstance(value, dict):
             _LOGGER.warning(
                 "%s - %s: preset_mode: Unexpected value type: %s, value: %s",
@@ -346,11 +340,9 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
             return STATE_UNKNOWN
 
         # Standard logic for other models
-        # Check if we're in manual mode (workMode == 1 or manual_work_mode)
         if work_mode == self._manual_work_mode:
             return "Manual"
 
-        # Otherwise, check for other preset modes (e.g., Sleep with workMode == 5)
         v = {"workMode": work_mode, "modeValue": mode_value}
         return next(
             (key for key, val in self._attr_preset_modes_mapping_set.items() if val == v),
@@ -370,7 +362,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
             _LOGGER.debug("%s - %s: percentage: No work_mode value from cache", self._api_id, self._identifier)
             return None
 
-        # Handle case where value is not a dict
         if not isinstance(value, dict):
             _LOGGER.warning(
                 "%s - %s: percentage: Unexpected value type: %s, value: %s",
@@ -400,12 +391,9 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
             return None
 
         # Standard logic for other models
-        # Return percentage if in manual mode
         if work_mode == self._manual_work_mode:
-            # Get the speed name from modeValue
             speed_name = self._speed_mapping.get(mode_value)
             if speed_name is not None and self._ordered_named_fan_speeds:
-                # Convert speed name to percentage using ordered list
                 return ordered_list_item_to_percentage(self._ordered_named_fan_speeds, speed_name)
             else:
                 _LOGGER.debug(
@@ -415,8 +403,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
                     mode_value,
                 )
         elif self._sleep_work_mode is not None and work_mode == self._sleep_work_mode:
-            # Sleep mode shows a low percentage so slider doesn't show 'Off'
-            # Using half of Low speed (33% / 2 = 16%)
             return self.SLEEP_MODE_PERCENTAGE
 
         return None
@@ -429,12 +415,10 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
 
         # H7120-specific: Commands use workMode=1 with modeValue for speeds
         if self._device_sku == "H7120":
-            # Turn on the device first if it's off
             if not self.is_on:
                 _LOGGER.debug("%s - %s: async_set_percentage: Turning on device first", self._api_id, self._identifier)
                 try:
                     await self.async_turn_on()
-                    # Give the device a moment to turn on
                     await asyncio.sleep(0.5)
                 except Exception as e:
                     _LOGGER.error(
@@ -447,11 +431,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
                     )
                     return
 
-            # Map percentage to speed level (round to nearest)
-            # 16% = Sleep (handled separately, shouldn't be called via percentage)
-            # 33% = Low (modeValue 1) - nearest for 1-49%
-            # 66% = Medium (modeValue 2) - nearest for 50-82%
-            # 100% = High (modeValue 3) - nearest for 83-100%
             if percentage < 50:
                 mode_value = 1  # Low
                 speed_name = "Low"
@@ -462,7 +441,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
                 mode_value = 3  # High
                 speed_name = "High"
 
-            # For H7120 commands: workMode=1 (Manual) with modeValue for speed
             state_capability = {
                 "type": "devices.capabilities.work_mode",
                 "instance": "workMode",
@@ -490,12 +468,10 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
             _LOGGER.error("%s - %s: async_set_percentage: No fan speeds configured", self._api_id, self._identifier)
             return
 
-        # Turn on the device first if it's off
         if not self.is_on:
             _LOGGER.debug("%s - %s: async_set_percentage: Turning on device first", self._api_id, self._identifier)
             try:
                 await self.async_turn_on()
-                # Give the device a moment to turn on
                 await asyncio.sleep(0.5)
             except Exception as e:
                 _LOGGER.error(
@@ -508,7 +484,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
                 )
                 return
 
-        # Convert percentage to speed name using ordered list
         speed_name = percentage_to_ordered_list_item(self._ordered_named_fan_speeds, percentage)
         mode_value = self._speed_name_to_mode_value.get(speed_name)
 
@@ -521,7 +496,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
             )
             return
 
-        # Set to manual mode with the specified speed
         state_capability = {
             "type": "devices.capabilities.work_mode",
             "instance": "workMode",
@@ -542,7 +516,6 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
 
     async def async_set_preset_mode(self, preset_mode: str) -> None:
         """Set new target preset mode."""
-        # Handle 'Off' preset by turning off the device
         if preset_mode == "Off":
             await self.async_turn_off()
             return

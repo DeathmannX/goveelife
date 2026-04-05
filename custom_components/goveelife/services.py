@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import functools
 import logging
 from typing import Final
@@ -24,7 +23,6 @@ async def async_registerService(hass: HomeAssistant, name: str, service) -> None
     """Register a service if it does not already exist"""
     try:
         _LOGGER.debug("%s - async_registerService: %s", DOMAIN, name)
-        await asyncio.sleep(0)
         if not hass.services.has_service(DOMAIN, name):
             # _LOGGER.info("%s - async_registerServic: register service: %s", DOMAIN, name)
             # hass.services.async_register(DOMAIN, name, service)

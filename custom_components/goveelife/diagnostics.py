@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from importlib.metadata import version
 from typing import (
     Any,
     Final,
@@ -16,7 +17,6 @@ from homeassistant.const import (
     CONF_STATE,
 )
 from homeassistant.core import HomeAssistant
-from importlib_metadata import version
 
 from .const import (
     DOMAIN,
