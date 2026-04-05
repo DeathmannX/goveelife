@@ -82,9 +82,7 @@ class GoveeLifePlatformEntity(CoordinatorEntity, Entity):
                 e.__class__.__module__,
                 type(e).__name__,
             )
-            raise RuntimeError(
-                f"{self._api_id} - {getattr(self, '_identifier', '?')}: __init__ failed: {e}"
-            ) from e
+            raise RuntimeError(f"{self._api_id} - {getattr(self, '_identifier', '?')}: __init__ failed: {e}") from e
 
     def _init_platform_specific(self, **kwargs):
         """Platform specific init actions"""

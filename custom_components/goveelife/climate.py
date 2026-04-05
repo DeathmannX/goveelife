@@ -168,7 +168,9 @@ class GoveeLifeClimate(ClimateEntity, GoveeLifePlatformEntity):
         v = self._attr_hvac_modes_mapping.get(value, STATE_UNKNOWN)
         if v == STATE_UNKNOWN:
             _LOGGER.warning("%s - %s: hvac_mode: invalid value: %s", self._api_id, self._identifier, value)
-            _LOGGER.debug("%s - %s: hvac_mode: valid are: %s", self._api_id, self._identifier, self._attr_hvac_modes_mapping)
+            _LOGGER.debug(
+                "%s - %s: hvac_mode: valid are: %s", self._api_id, self._identifier, self._attr_hvac_modes_mapping
+            )
         return v
 
     async def async_set_hvac_mode(self, hvac_mode: HVACMode) -> None:

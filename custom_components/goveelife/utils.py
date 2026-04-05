@@ -90,7 +90,9 @@ async def async_GoveeAPI_GETRequest(hass: HomeAssistant, entry_id: str, path: st
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
                 if r.status == 429:
-                    _LOGGER.error("%s - async_GoveeAPI_GETRequest: Too many API requests - limit is 10000/Account/Day", entry_id)
+                    _LOGGER.error(
+                        "%s - async_GoveeAPI_GETRequest: Too many API requests - limit is 10000/Account/Day", entry_id
+                    )
                     return None
                 elif r.status == 401:
                     _LOGGER.error("%s - async_GoveeAPI_GETRequest: Unauthorized - check your APIKey", entry_id)
@@ -172,13 +174,15 @@ async def async_GoveeAPI_GetDeviceState(
     """Async: Request and save state of device via GoveeAPI"""
     try:
         entry_data = hass.data[DOMAIN][entry_id]
-        json_str = json.dumps({
-            "requestId": "<dynamic_uuid>",
-            "payload": {
-                "sku": str(device_cfg.get("sku")),
-                "device": str(device_cfg.get("device")),
-            },
-        })
+        json_str = json.dumps(
+            {
+                "requestId": "<dynamic_uuid>",
+                "payload": {
+                    "sku": str(device_cfg.get("sku")),
+                    "device": str(device_cfg.get("device")),
+                },
+            }
+        )
         r = None
     except Exception as e:
         _LOGGER.error(
@@ -238,14 +242,16 @@ async def async_GoveeAPI_ControlDevice(
     try:
         entry_data = hass.data[DOMAIN][entry_id]
         state_capability_json = json.dumps(state_capability)
-        json_str = json.dumps({
-            "requestId": "<dynamic_uuid>",
-            "payload": {
-                "sku": str(device_cfg.get("sku")),
-                "device": str(device_cfg.get("device")),
-                "capability": state_capability,
-            },
-        })
+        json_str = json.dumps(
+            {
+                "requestId": "<dynamic_uuid>",
+                "payload": {
+                    "sku": str(device_cfg.get("sku")),
+                    "device": str(device_cfg.get("device")),
+                    "capability": state_capability,
+                },
+            }
+        )
         _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: json_str = %s", entry_id, json_str)
         r = None
     except Exception as e:
