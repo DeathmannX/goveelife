@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from typing import Final
 
+from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_DEVICES, STATE_OFF, STATE_ON, STATE_UNKNOWN
 from homeassistant.core import HomeAssistant
@@ -71,7 +71,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                     )
                     entity = GoveeLifeSwitch(hass, entry, coordinator, device_cfg, platform=platform, cap=capability)
                     entities.append(entity)
-            await asyncio.sleep(0)
         except Exception as e:
             _LOGGER.error(
                 "%s - async_setup_entry %s: Setup device failed: %s (%s.%s)",
@@ -89,11 +88,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     async_add_entities(entities)
 
 
-class GoveeLifeSwitch(GoveeLifePlatformEntity):
+class GoveeLifeSwitch(SwitchEntity, GoveeLifePlatformEntity):
     """Switch class for Govee Life integration."""
 
-    _state_mapping = {}
-    _state_mapping_set = {}
+    def __init__(self, hass, entry, coordinator, device_cfg, **kwargs):
+        """Initialize the switch entity."""
+        self._state_mapping = {}
+        self._state_mapping_set = {}
+        super().__init__(hass, entry, coordinator, device_cfg, **kwargs)
 
     def _init_platform_specific(self, **kwargs):
         """Platform specific initialization."""

@@ -71,7 +71,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             coordinator = entry_data[CONF_COORDINATORS][d]
             entity = GoveeLifeLight(hass, entry, coordinator, device_cfg, platform=platform)
             entities.append(entity)
-            await asyncio.sleep(0)
         except Exception as e:
             _LOGGER.error(
                 "%s - async_setup_entry %s: Setup device failed: %s (%s.%s)",

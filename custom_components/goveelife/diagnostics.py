@@ -16,7 +16,7 @@ from homeassistant.const import (
     CONF_STATE,
 )
 from homeassistant.core import HomeAssistant
-from importlib_metadata import version
+from importlib.metadata import version
 
 from .const import (
     DOMAIN,

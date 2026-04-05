@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import timedelta
 from typing import Final
 
-import async_timeout
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_FRIENDLY_NAME,
@@ -82,7 +82,9 @@ class GoveeLifePlatformEntity(CoordinatorEntity, Entity):
                 e.__class__.__module__,
                 type(e).__name__,
             )
-            return None
+            raise RuntimeError(
+                f"{self._api_id} - {getattr(self, '_identifier', '?')}: __init__ failed: {e}"
+            ) from e
 
     def _init_platform_specific(self, **kwargs):
         """Platform specific init actions"""
@@ -194,7 +196,7 @@ class GoveeAPIUpdateCoordinator(DataUpdateCoordinator):
         """Fetch data from the API endpoint."""
         try:
             entry_data = self.hass.data[DOMAIN][self._entry_id]
-            async with async_timeout.timeout(entry_data[CONF_PARAMS][CONF_TIMEOUT]):
+            async with asyncio.timeout(entry_data[CONF_PARAMS][CONF_TIMEOUT]):
                 result = await async_GoveeAPI_GetDeviceState(self.hass, self._entry_id, self._device_cfg, True)
         except Exception as e:
             _LOGGER.error(

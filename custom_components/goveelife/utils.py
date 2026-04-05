@@ -11,7 +11,7 @@ import uuid
 from datetime import date
 from typing import Final
 
-import requests
+import aiohttp
 from homeassistant.const import (
     ATTR_DATE,
     CONF_API_KEY,
@@ -33,45 +33,11 @@ from .const import (
 _LOGGER: Final = logging.getLogger(__name__)
 
 
-async def async_ProgrammingDebug(obj, show_all: bool = False) -> None:
-    """Async: return all attributes of a specific objec"""
-    try:
-        _LOGGER.debug("%s - async_ProgrammingDebug: %s", DOMAIN, obj)
-        for attr in dir(obj):
-            if attr.startswith("_") and not show_all:
-                continue
-            if hasattr(obj, attr):
-                _LOGGER.debug("%s - async_ProgrammingDebug: %s = %s", DOMAIN, attr, getattr(obj, attr))
-            await asyncio.sleep(0)
-    except Exception as e:
-        _LOGGER.error(
-            "%s - async_ProgrammingDebug: failed: %s (%s.%s)", DOMAIN, str(e), e.__class__.__module__, type(e).__name__
-        )
-        pass
-
-
-def ProgrammingDebug(obj, show_all: bool = False) -> None:
-    """return all attributes of a specific objec"""
-    try:
-        _LOGGER.debug("%s - ProgrammingDebug: %s", DOMAIN, obj)
-        for attr in dir(obj):
-            if attr.startswith("_") and not show_all:
-                continue
-            if hasattr(obj, attr):
-                _LOGGER.debug("%s - ProgrammingDebug: %s = %s", DOMAIN, attr, getattr(obj, attr))
-    except Exception as e:
-        _LOGGER.error(
-            "%s - ProgrammingDebug: failed: %s (%s.%s)", DOMAIN, str(e), e.__class__.__module__, type(e).__name__
-        )
-        pass
-
-
-async def async_GooveAPI_CountRequests(hass: HomeAssistant, entry_id: str) -> None:
-    """Asnyc: Count daily number of requests to GooveAPI"""
+async def async_GoveeAPI_CountRequests(hass: HomeAssistant, entry_id: str) -> None:
+    """Async: Count daily number of requests to GoveeAPI"""
     try:
         entry_data = hass.data[DOMAIN][entry_id]
         today = date.today()
-        # entry_data.setdefault(CONF_API_COUNT, {CONF_COUNT : 0, ATTR_DATE : today})
         v = entry_data.get(CONF_API_COUNT, {CONF_COUNT: 0, ATTR_DATE: today})
         if v[ATTR_DATE] == today:
             v[CONF_COUNT] = int(v[CONF_COUNT]) + 1
@@ -79,10 +45,10 @@ async def async_GooveAPI_CountRequests(hass: HomeAssistant, entry_id: str) -> No
             v[CONF_COUNT] = 1
         entry_data[CONF_API_COUNT] = v
 
-        _LOGGER.debug("%s - async_GooveAPI_CountRequests: %s -> %s", entry_id, v[ATTR_DATE], v[CONF_COUNT])
+        _LOGGER.debug("%s - async_GoveeAPI_CountRequests: %s -> %s", entry_id, v[ATTR_DATE], v[CONF_COUNT])
     except Exception as e:
         _LOGGER.error(
-            "%s - async_GooveAPI_CountRequests: Failed: %s (%s.%s)",
+            "%s - async_GoveeAPI_CountRequests: Failed: %s (%s.%s)",
             entry_id,
             str(e),
             e.__class__.__module__,
@@ -92,7 +58,7 @@ async def async_GooveAPI_CountRequests(hass: HomeAssistant, entry_id: str) -> No
 
 
 async def async_GoveeAPI_GETRequest(hass: HomeAssistant, entry_id: str, path: str) -> None:
-    """Asnyc: Request device list via GooveAPI"""
+    """Async: Request device list via GoveeAPI"""
     try:
         debug_file = os.path.dirname(os.path.realpath(__file__)) + STATE_DEBUG_FILENAME
         if os.path.isfile(debug_file):
@@ -114,7 +80,6 @@ async def async_GoveeAPI_GETRequest(hass: HomeAssistant, entry_id: str, path: st
         _LOGGER.debug("%s - async_GoveeAPI_GETRequest: perform api request", entry_id)
         entry_data = hass.data[DOMAIN][entry_id]
 
-        # _LOGGER.debug("%s - async_GoveeAPI_GETRequest: perpare parameters for GET request"
         headers = {
             "Content-Type": "application/json",
             CLOUD_API_HEADER_KEY: str(entry_data[CONF_PARAMS].get(CONF_API_KEY, None)),
@@ -122,21 +87,22 @@ async def async_GoveeAPI_GETRequest(hass: HomeAssistant, entry_id: str, path: st
         timeout = entry_data[CONF_PARAMS].get(CONF_TIMEOUT, None)
         url = CLOUD_API_URL_OPENAPI + "/" + path.strip("/")
 
-        # _LOGGER.debug("%s - async_GoveeAPI_GETRequest: extecute GET request"
-        await async_GooveAPI_CountRequests(hass, entry_id)
-        r = await hass.async_add_executor_job(lambda: requests.get(url, headers=headers, timeout=timeout))
-        if r.status_code == 429:
-            _LOGGER.error("%s - async_GoveeAPI_GETRequest: Too many API request - limit is 10000/Account/Day", entry_id)
-            return None
-        elif r.status_code == 401:
-            _LOGGER.error("%s - async_GoveeAPI_GETRequest: Unauthorize - check you APIKey", entry_id)
-            return None
-        elif not r.status_code == 200:
-            _LOGGER.error("%s - async_GoveeAPI_GETRequest: Failed: %s", entry_id, str(r.text))
-            return None
+        await async_GoveeAPI_CountRequests(hass, entry_id)
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+                if r.status == 429:
+                    _LOGGER.error("%s - async_GoveeAPI_GETRequest: Too many API requests - limit is 10000/Account/Day", entry_id)
+                    return None
+                elif r.status == 401:
+                    _LOGGER.error("%s - async_GoveeAPI_GETRequest: Unauthorized - check your APIKey", entry_id)
+                    return None
+                elif r.status != 200:
+                    text = await r.text()
+                    _LOGGER.error("%s - async_GoveeAPI_GETRequest: Failed: %s", entry_id, text)
+                    return None
 
-        _LOGGER.debug("%s - async_GoveeAPI_GETRequest: convert resulting json to object", entry_id)
-        return json.loads(r.text)["data"]
+                _LOGGER.debug("%s - async_GoveeAPI_GETRequest: convert resulting json to object", entry_id)
+                return (await r.json())["data"]
 
     except Exception as e:
         _LOGGER.error(
@@ -152,12 +118,10 @@ async def async_GoveeAPI_GETRequest(hass: HomeAssistant, entry_id: str, path: st
 async def async_GoveeAPI_POSTRequest(
     hass: HomeAssistant, entry_id: str, path: str, data: str, return_status_code=False
 ) -> None:
-    """Asnyc: Perform post state request / control request via GooveAPI"""
+    """Async: Perform post state request / control request via GoveeAPI"""
     try:
-        # _LOGGER.debug("%s - async_GoveeAPI_POSTRequest: perform api request", entry_id)
         entry_data = hass.data[DOMAIN][entry_id]
 
-        # _LOGGER.debug("%s - async_GoveeAPI_POSTRequest: perpare parameters for POST request"
         headers = {
             "Content-Type": "application/json",
             CLOUD_API_HEADER_KEY: str(entry_data[CONF_PARAMS].get(CONF_API_KEY, None)),
@@ -168,29 +132,29 @@ async def async_GoveeAPI_POSTRequest(
         data = json.loads(data)
         url = CLOUD_API_URL_OPENAPI + "/" + path.strip("/")
 
-        # _LOGGER.debug("%s - async_GoveeAPI_POSTRequest: extecute POST request"
-        await async_GooveAPI_CountRequests(hass, entry_id)
-        r = await hass.async_add_executor_job(lambda: requests.post(url, json=data, headers=headers, timeout=timeout))
-        if r.status_code == 429:
-            _LOGGER.error(
-                "%s - async_GoveeAPI_POSTRequest: Too many API request - limit is 10000/Account/Day", entry_id
-            )
-            if return_status_code:
-                return r.status_code
-            return None
-        elif r.status_code == 401:
-            _LOGGER.error("%s - async_GoveeAPI_POSTRequest: Unauthorize - check you APIKey", entry_id)
-            if return_status_code:
-                return r.status_code
-            return None
-        elif r.status_code != 200:
-            _LOGGER.error("%s - async_GoveeAPI_POSTRequest: Failed status_code: %s", entry_id, str(r.text))
-            if return_status_code:
-                return r.status_code
-            return None
+        await async_GoveeAPI_CountRequests(hass, entry_id)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=data, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout)) as r:
+                if r.status == 429:
+                    _LOGGER.error(
+                        "%s - async_GoveeAPI_POSTRequest: Too many API requests - limit is 10000/Account/Day", entry_id
+                    )
+                    if return_status_code:
+                        return r.status
+                    return None
+                elif r.status == 401:
+                    _LOGGER.error("%s - async_GoveeAPI_POSTRequest: Unauthorized - check your APIKey", entry_id)
+                    if return_status_code:
+                        return r.status
+                    return None
+                elif r.status != 200:
+                    text = await r.text()
+                    _LOGGER.error("%s - async_GoveeAPI_POSTRequest: Failed status_code: %s", entry_id, text)
+                    if return_status_code:
+                        return r.status
+                    return None
 
-        # _LOGGER.debug("%s - async_GoveeAPI_POSTRequest: convert resulting json to object", entry_id)
-        return json.loads(r.text)
+                return await r.json()
 
     except Exception as e:
         _LOGGER.error(
@@ -206,17 +170,16 @@ async def async_GoveeAPI_POSTRequest(
 async def async_GoveeAPI_GetDeviceState(
     hass: HomeAssistant, entry_id: str, device_cfg, return_status_code=False
 ) -> None:
-    """Asnyc: Request and save state of device via GooveAPI"""
+    """Async: Request and save state of device via GoveeAPI"""
     try:
-        # _LOGGER.debug("%s - async_GoveeAPI_GetDeviceState: preparing values", entry_id)
         entry_data = hass.data[DOMAIN][entry_id]
-        json_str = (
-            '{"requestId": "<dynamic_uuid>","payload": {"sku": "'
-            + str(device_cfg.get("sku"))
-            + '","device": "'
-            + str(device_cfg.get("device"))
-            + '"}}'
-        )
+        json_str = json.dumps({
+            "requestId": "<dynamic_uuid>",
+            "payload": {
+                "sku": str(device_cfg.get("sku")),
+                "device": str(device_cfg.get("device")),
+            },
+        })
         r = None
     except Exception as e:
         _LOGGER.error(
@@ -272,20 +235,18 @@ async def async_GoveeAPI_GetDeviceState(
 async def async_GoveeAPI_ControlDevice(
     hass: HomeAssistant, entry_id: str, device_cfg, state_capability, return_status_code=False
 ) -> None:
-    """Asnyc: Trigger device action via GooveAPI"""
+    """Async: Trigger device action via GoveeAPI"""
     try:
-        # _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: preparing values", entry_id)
         entry_data = hass.data[DOMAIN][entry_id]
         state_capability_json = json.dumps(state_capability)
-        json_str = (
-            '{"requestId": "<dynamic_uuid>","payload": {"sku": "'
-            + str(device_cfg.get("sku"))
-            + '","device": "'
-            + str(device_cfg.get("device"))
-            + '","capability": '
-            + state_capability_json
-            + "}}"
-        )
+        json_str = json.dumps({
+            "requestId": "<dynamic_uuid>",
+            "payload": {
+                "sku": str(device_cfg.get("sku")),
+                "device": str(device_cfg.get("device")),
+                "capability": state_capability,
+            },
+        })
         _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: json_str = %s", entry_id, json_str)
         r = None
     except Exception as e:
@@ -311,7 +272,7 @@ async def async_GoveeAPI_ControlDevice(
             )
     except Exception as e:
         _LOGGER.error(
-            "%s - async_GoveeAPI_GetDeviceState: debug reply failed: %s (%s.%s)",
+            "%s - async_GoveeAPI_ControlDevice: debug reply failed: %s (%s.%s)",
             entry_id,
             str(e),
             e.__class__.__module__,
@@ -354,15 +315,14 @@ async def async_GoveeAPI_ControlDevice(
 
 
 def GoveeAPI_GetCachedStateValue(hass: HomeAssistant, entry_id: str, device_id, value_type, value_instance):
-    """Asnyc: Get value of a state from local cache"""
+    """Get value of a state from local cache"""
     try:
-        # _LOGGER.debug("%s - async_GoveeAPI_GetCachedStateValue: preparing values", entry_id)
         entry_data = hass.data[DOMAIN][entry_id]
         capabilities = ((entry_data.get(CONF_STATE)).get(device_id)).get("capabilities", [])
         value = None
     except Exception as e:
         _LOGGER.error(
-            "%s - async_GoveeAPI_GetCachedStateValue: Failed: %s (%s.%s)",
+            "%s - GoveeAPI_GetCachedStateValue: Failed: %s (%s.%s)",
             entry_id,
             str(e),
             e.__class__.__module__,
@@ -371,17 +331,15 @@ def GoveeAPI_GetCachedStateValue(hass: HomeAssistant, entry_id: str, device_id, 
         return None
 
     try:
-        # _LOGGER.debug("%s - async_GoveeAPI_GetCachedStateValue: getting value: %s - %s", entry_id, value_type, value_instance)
         for cap in capabilities:
             if cap["type"] == value_type and cap["instance"] == value_instance:
                 cap_state = cap.get("state", None)
                 if cap_state is not None:
                     value = cap_state.get("value", cap_state.get(value_instance, None))
-        # _LOGGER.debug("%s - async_GoveeAPI_GetCachedStateValue: value: %s = %s", entry_id, value_instance, value)
         return value
     except Exception as e:
         _LOGGER.error(
-            "%s - async_GoveeAPI_GetCachedStateValue: Failed: %s (%s.%s)",
+            "%s - GoveeAPI_GetCachedStateValue: Failed: %s (%s.%s)",
             entry_id,
             str(e),
             e.__class__.__module__,
@@ -466,3 +424,23 @@ async def async_GoveeAPI_GetDynamicDIYScenes(hass: HomeAssistant, entry_id: str,
             type(e).__name__,
         )
         return []
+
+
+async def async_turn_on_entity(hass: HomeAssistant, entry_id: str, device_cfg, state_mapping_set: dict) -> bool:
+    """Shared helper: Turn on a device via on_off capability."""
+    state_capability = {
+        "type": "devices.capabilities.on_off",
+        "instance": "powerSwitch",
+        "value": state_mapping_set["on"],
+    }
+    return await async_GoveeAPI_ControlDevice(hass, entry_id, device_cfg, state_capability)
+
+
+async def async_turn_off_entity(hass: HomeAssistant, entry_id: str, device_cfg, state_mapping_set: dict) -> bool:
+    """Shared helper: Turn off a device via on_off capability."""
+    state_capability = {
+        "type": "devices.capabilities.on_off",
+        "instance": "powerSwitch",
+        "value": state_mapping_set["off"],
+    }
+    return await async_GoveeAPI_ControlDevice(hass, entry_id, device_cfg, state_capability)

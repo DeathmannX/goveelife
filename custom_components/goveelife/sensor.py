@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from typing import Final
@@ -13,7 +12,6 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_DEVICES,
-    CONF_STATE,
     STATE_UNKNOWN,
 )
 from homeassistant.core import (
@@ -36,7 +34,7 @@ platform_device_types = ["devices.types.sensor:.*", "devices.types.thermometer:.
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
     """Set up the sensor platform."""
     _LOGGER.debug("Setting up %s platform entry: %s | %s", platform, DOMAIN, entry.entry_id)
-    entites = []
+    entities = []
 
     try:
         _LOGGER.debug("%s - async_setup_entry %s: Getting cloud devices from data store", entry.entry_id, platform)
@@ -80,8 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                         capability.get("instance", STATE_UNKNOWN),
                     )
                     entity = GoveeLifeSensor(hass, entry, coordinator, device_cfg, platform=platform, cap=capability)
-                    entites.append(entity)
-            await asyncio.sleep(0)
+                    entities.append(entity)
         except Exception as e:
             _LOGGER.error(
                 "%s - async_setup_entry %s: Setup device failed: %s (%s.%s)",
@@ -93,10 +90,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             )
             return False
 
-    _LOGGER.info("%s - async_setup_entry: setup %s %s entities", entry.entry_id, len(entites), platform)
-    if not entites:
+    _LOGGER.info("%s - async_setup_entry: setup %s %s entities", entry.entry_id, len(entities), platform)
+    if not entities:
         return None
-    async_add_entities(entites)
+    async_add_entities(entities)
 
 
 class GoveeLifeSensor(GoveeLifePlatformEntity):
@@ -124,9 +121,6 @@ class GoveeLifeSensor(GoveeLifePlatformEntity):
     @callback
     def _handle_coordinator_update(self) -> None:
         """Handle updated data from the coordinator."""
-        # self._attr_is_on = self.coordinator.data[self.idx]["state"]
-        d = self._device_cfg.get("device")
-        self.hass.data[DOMAIN][self._entry_id][CONF_STATE][d]
         self.async_write_ha_state()
 
     @property

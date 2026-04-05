@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Final
 
@@ -59,7 +58,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             coordinator = entry_data[CONF_COORDINATORS][device]
             entity = GoveeLifeHumidifier(hass, entry, coordinator, device_cfg, platform=platform)
             entities.append(entity)
-            await asyncio.sleep(0)
         except Exception as e:
             _LOGGER.error(
                 "%s - async_setup_entry %s: Setup device failed: %s (%s.%s)",
@@ -80,11 +78,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
     """Humidifier class for Govee Life integration."""
 
-    _state_mapping = {}
-    _state_mapping_set = {}
-    _attr_available_modes = []
-    _attr_preset_modes_mapping = {}
-    _attr_preset_modes_mapping_set = {}
+    def __init__(self, hass, entry, coordinator, device_cfg, **kwargs):
+        """Initialize the humidifier entity."""
+        self._state_mapping = {}
+        self._state_mapping_set = {}
+        self._attr_available_modes = []
+        self._attr_preset_modes_mapping = {}
+        self._attr_preset_modes_mapping_set = {}
+        super().__init__(hass, entry, coordinator, device_cfg, **kwargs)
 
     def _init_platform_specific(self, **kwargs):
         """Platform specific initialization actions."""
@@ -153,16 +154,27 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
                 )
 
     @property
-    def current_humidity(self) -> float:
+    def current_humidity(self) -> float | None:
         """Return current humidity."""
         value = GoveeAPI_GetCachedStateValue(
-            self.hass, self._entry_id, self._device_cfg.get("device"), "devices.capabilities.on_off", "powerSwitch"
+            self.hass,
+            self._entry_id,
+            self._device_cfg.get("device"),
+            "devices.capabilities.property",
+            "sensorHumidity",
         )
-        v = self._state_mapping.get(value, STATE_UNKNOWN)
-        if v == STATE_UNKNOWN:
-            _LOGGER.warning("%s - %s: state: invalid value: %s", self._api_id, self._identifier, value)
-            _LOGGER.debug("%s - %s: state: valid are: %s", self._api_id, self._identifier, self._state_mapping)
-        return v
+        if value is None or value == "":
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "%s - %s: current_humidity: could not convert value to float: %s",
+                self._api_id,
+                self._identifier,
+                value,
+            )
+            return None
 
     @property
     def is_on(self) -> bool:
