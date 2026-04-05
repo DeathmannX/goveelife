@@ -108,8 +108,8 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
         self._attr_preset_modes_mapping_set = {}
 
         # --- First pass: collect work_mode data so we can detect flat-workMode devices ---
-        work_mode_options = []       # list of {name, value} from workMode field
-        gear_modes = []              # list of {name, value} from gearMode modeValue sub-options
+        work_mode_options = []  # list of {name, value} from workMode field
+        gear_modes = []  # list of {name, value} from gearMode modeValue sub-options
         any_named_modevalue = False  # True if any modeValue option carries sub-options with names
         manual_work_mode = None
         work_mode_cap = None
@@ -143,11 +143,7 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
         # A flat-workMode device has workMode options but NO gearMode sub-options AND
         # NO named modeValue sub-options with gear levels. In this case every workMode
         # option IS a distinct speed/preset level (e.g. H7120: Low=1, Medium=2, High=3, Sleep=5).
-        flat_work_mode = (
-            bool(work_mode_options)
-            and not gear_modes
-            and not any_named_modevalue
-        )
+        flat_work_mode = bool(work_mode_options) and not gear_modes and not any_named_modevalue
 
         if flat_work_mode:
             _LOGGER.debug(
@@ -280,9 +276,7 @@ class GoveeLifeFan(FanEntity, GoveeLifePlatformEntity):
                         self._identifier,
                         self._ordered_named_fan_speeds,
                     )
-                    _LOGGER.debug(
-                        "%s - %s: Speed mapping: %s", self._api_id, self._identifier, self._speed_mapping
-                    )
+                    _LOGGER.debug("%s - %s: Speed mapping: %s", self._api_id, self._identifier, self._speed_mapping)
 
     @property
     def state(self) -> str | None:

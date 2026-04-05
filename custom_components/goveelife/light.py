@@ -72,9 +72,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             entities.append(entity)
             if entity._segment_count > 1:
                 for seg_idx in range(entity._segment_count):
-                    seg_entity = GoveeLifeSegmentLight(
-                        hass, entry, coordinator, device_cfg, segment_index=seg_idx
-                    )
+                    seg_entity = GoveeLifeSegmentLight(hass, entry, coordinator, device_cfg, segment_index=seg_idx)
                     entities.append(seg_entity)
         except Exception as e:
             _LOGGER.error(
@@ -209,12 +207,22 @@ class GoveeLifeLight(LightEntity, GoveeLifePlatformEntity, RestoreEntity):
                         self._support_segmented_rgb = True
                         seg_field = next((f for f in cap["parameters"]["fields"] if f["fieldName"] == "segment"), {})
                         self._segment_count = max(self._segment_count or 0, seg_field.get("size", {}).get("max", 0))
-                        _LOGGER.info("%s - %s: Segmented RGB support enabled, segment_count=%d", self._api_id, self._identifier, self._segment_count)
+                        _LOGGER.info(
+                            "%s - %s: Segmented RGB support enabled, segment_count=%d",
+                            self._api_id,
+                            self._identifier,
+                            self._segment_count,
+                        )
                     elif cap["instance"] == "segmentedBrightness":
                         self._support_segmented_brightness = True
                         seg_field = next((f for f in cap["parameters"]["fields"] if f["fieldName"] == "segment"), {})
                         self._segment_count = max(self._segment_count or 0, seg_field.get("size", {}).get("max", 0))
-                        _LOGGER.info("%s - %s: Segmented brightness support enabled, segment_count=%d", self._api_id, self._identifier, self._segment_count)
+                        _LOGGER.info(
+                            "%s - %s: Segmented brightness support enabled, segment_count=%d",
+                            self._api_id,
+                            self._identifier,
+                            self._segment_count,
+                        )
                 else:
                     _LOGGER.debug(
                         "%s - %s: _init_platform_specific: cap unhandled: %s", self._api_id, self._identifier, cap
