@@ -669,11 +669,8 @@ class GoveeLifeSegmentLight(GoveeLifeLight):
             return ColorMode.BRIGHTNESS
         return ColorMode.ONOFF
 
-    @property
-    def brightness(self) -> int | None:
-        """Return the current brightness of this segment."""
-        if not self._support_segmented_brightness:
-            return None
+    def _get_segment_raw_brightness(self) -> int | None:
+        """Return the raw API brightness value (0-100) for this segment, or None if not found."""
         value = GoveeAPI_GetCachedStateValue(
             self.hass,
             self._entry_id,
@@ -684,8 +681,19 @@ class GoveeLifeSegmentLight(GoveeLifeLight):
         if isinstance(value, list):
             for item in value:
                 if isinstance(item, dict) and self._segment_index in item.get("segment", []):
-                    return value_to_brightness((0, 100), item.get("brightness", 0))
+                    return item.get("brightness")
         return None
+
+    @property
+    def brightness(self) -> int | None:
+        """Return the current brightness of this segment."""
+        if not self._support_segmented_brightness:
+            return None
+        raw = self._get_segment_raw_brightness()
+        if raw is None or raw == 0:
+            # Return None when off so HA doesn't clamp to minimum brightness
+            return None
+        return value_to_brightness((1, 100), raw)
 
     @property
     def rgb_color(self) -> tuple[int, int, int] | None:
@@ -709,9 +717,9 @@ class GoveeLifeSegmentLight(GoveeLifeLight):
     def state(self) -> str | None:
         """Return the current state of this segment."""
         if self._support_segmented_brightness:
-            b = self.brightness
-            if b is not None:
-                return STATE_ON if b > 0 else STATE_OFF
+            raw = self._get_segment_raw_brightness()
+            if raw is not None:
+                return STATE_OFF if raw == 0 else STATE_ON
         if self._support_segmented_rgb:
             rgb = self.rgb_color
             if rgb is not None:
