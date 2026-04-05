@@ -7,12 +7,15 @@ import re
 from typing import Final
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_DEVICES,
+    PERCENTAGE,
     STATE_UNKNOWN,
+    UnitOfTemperature,
 )
 from homeassistant.core import (
     HomeAssistant,
@@ -28,7 +31,14 @@ from .utils import GoveeAPI_GetCachedStateValue
 
 _LOGGER: Final = logging.getLogger(__name__)
 platform = "sensor"
-platform_device_types = ["devices.types.sensor:.*", "devices.types.thermometer:.*"]
+platform_device_types = [
+    "devices.types.sensor:.*",
+    "devices.types.thermometer:.*",
+    "devices.types.humidifier:devices.capabilities.property:sensorHumidity",
+    "devices.types.humidifier:devices.capabilities.property:sensorTemperature",
+    "devices.types.dehumidifier:devices.capabilities.property:sensorHumidity",
+    "devices.types.dehumidifier:devices.capabilities.property:sensorTemperature",
+]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities):
@@ -106,6 +116,15 @@ class GoveeLifeSensor(GoveeLifePlatformEntity):
         self.uniqueid = self._identifier + "_" + self._entity_id + "_" + self._capability_name
         self._name = self._capability_name
         self._state_class = SensorStateClass.MEASUREMENT
+        self._attr_device_class = None
+        self._attr_native_unit_of_measurement = None
+
+        if self._capability_name == "sensorHumidity":
+            self._attr_device_class = SensorDeviceClass.HUMIDITY
+            self._attr_native_unit_of_measurement = PERCENTAGE
+        elif self._capability_name == "sensorTemperature":
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE
+            self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
 
     @property
     def state_class(self) -> SensorStateClass | None:

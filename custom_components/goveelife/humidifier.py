@@ -129,15 +129,16 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
                         for valueOption in capFieldWork.get("options", []):
                             if valueOption["name"] == "Manual":
                                 for gearOption in valueOption.get("options", []):
-                                    self._attr_available_modes.append(gearOption["name"])
-                                    self._attr_preset_modes_mapping_set[gearOption["name"]] = {
+                                    gear_name = gearOption.get("name") or f"Speed {gearOption['value']}"
+                                    self._attr_available_modes.append(gear_name)
+                                    self._attr_preset_modes_mapping_set[gear_name] = {
                                         "workMode": self._attr_preset_modes_mapping[valueOption["name"]],
                                         "modeValue": gearOption["value"],
                                     }
                                     _LOGGER.debug(
                                         "Adding PRESET mode of %s: %s",
-                                        gearOption["name"],
-                                        self._attr_preset_modes_mapping_set[gearOption["name"]],
+                                        gear_name,
+                                        self._attr_preset_modes_mapping_set[gear_name],
                                     )
                             elif valueOption["name"] != "Custom":
                                 self._attr_available_modes.append(valueOption["name"])
