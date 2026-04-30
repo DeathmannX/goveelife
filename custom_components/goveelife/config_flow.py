@@ -28,7 +28,6 @@ class ConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Govee Life."""
 
     VERSION = 1
-    CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
     data: dict[str, Any] | None = None
 
     def __init__(self):

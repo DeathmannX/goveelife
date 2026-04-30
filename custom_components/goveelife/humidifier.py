@@ -99,7 +99,9 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
         capabilities = self._device_cfg.get("capabilities", [])
 
         _LOGGER.debug(
-            "%s - %s: _init_platform_specific: processing devices request capabilities", self._api_id, self._identifier
+            "%s - %s: _init_platform_specific: processing devices request capabilities",
+            self._api_id,
+            self._identifier,
         )
         for cap in capabilities:
             _LOGGER.debug("%s - %s: _init_platform_specific: processing cap: %s", self._api_id, self._identifier, cap)
@@ -126,32 +128,120 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
                         for workOption in capFieldWork.get("options", []):
                             self._attr_preset_modes_mapping[workOption["name"]] = workOption["value"]
                     elif capFieldWork["fieldName"] == "modeValue":
-                        for valueOption in capFieldWork.get("options", []):
-                            if valueOption["name"] == "Manual":
-                                for gearOption in valueOption.get("options", []):
-                                    gear_name = gearOption.get("name") or f"Speed {gearOption['value']}"
-                                    self._attr_available_modes.append(gear_name)
-                                    self._attr_preset_modes_mapping_set[gear_name] = {
-                                        "workMode": self._attr_preset_modes_mapping[valueOption["name"]],
-                                        "modeValue": gearOption["value"],
-                                    }
-                                    _LOGGER.debug(
-                                        "Adding PRESET mode of %s: %s",
-                                        gear_name,
-                                        self._attr_preset_modes_mapping_set[gear_name],
-                                    )
-                            elif valueOption["name"] != "Custom":
-                                self._attr_available_modes.append(valueOption["name"])
-                                self._attr_preset_modes_mapping_set[valueOption["name"]] = {
-                                    "workMode": self._attr_preset_modes_mapping[valueOption["name"]],
-                                    "modeValue": valueOption["value"],
-                                }
+                        self._process_mode_value_options(capFieldWork.get("options", []))
             elif cap["type"] == "devices.capabilities.range" and cap["instance"] == "humidity":
                 self._attr_min_humidity = cap["parameters"]["range"]["min"]
                 self._attr_max_humidity = cap["parameters"]["range"]["max"]
             else:
                 _LOGGER.debug(
                     "%s - %s: _init_platform_specific: cap unhandled: %s", self._api_id, self._identifier, cap
+                )
+
+    def _process_mode_value_options(self, options: list) -> None:
+        """Parse modeValue options and populate available modes.
+
+        Handles four modeValue option structures:
+          1. Nested sub-options  — {"name": "gearMode", "options": [...]}
+          2. Range-based         — {"name": "Auto", "range": {"min": 80, "max": 80}}
+          3. Default-value       — {"name": "Dryer", "defaultValue": 0}
+          4. Flat value          — {"name": "Normal", "value": 2}  (legacy)
+
+        The modeValue option name always matches the corresponding workMode option
+        name, so we can look up the workMode integer via _attr_preset_modes_mapping.
+        """
+        for valueOption in options:
+            mode_name = valueOption.get("name", "")
+            work_mode_value = self._attr_preset_modes_mapping.get(mode_name)
+
+            if mode_name == "Custom":
+                # Skip — Custom is a passthrough mode, not user-selectable
+                continue
+            elif "options" in valueOption:
+                # Nested sub-options — expand each as an individual selectable mode.
+                # Sub-option names may be absent (unnamed speeds); auto-generate.
+                for gearOption in valueOption["options"]:
+                    raw_name = gearOption.get("name")
+                    gear_val = gearOption.get("value")
+                    gear_name = raw_name if raw_name else f"{mode_name}: Speed {gear_val}"
+                    if work_mode_value is not None and gear_val is not None:
+                        self._attr_available_modes.append(gear_name)
+                        self._attr_preset_modes_mapping_set[gear_name] = {
+                            "workMode": work_mode_value,
+                            "modeValue": gear_val,
+                        }
+                        _LOGGER.debug(
+                            "%s - %s: Adding sub-mode %s: %s",
+                            self._api_id,
+                            self._identifier,
+                            gear_name,
+                            self._attr_preset_modes_mapping_set[gear_name],
+                        )
+                    else:
+                        _LOGGER.warning(
+                            "%s - %s: Could not map sub-mode %s (work_mode=%s, val=%s)",
+                            self._api_id,
+                            self._identifier,
+                            gear_name,
+                            work_mode_value,
+                            gear_val,
+                        )
+            elif "range" in valueOption:
+                # Range-based mode — use the minimum value as the representative modeValue
+                range_val = valueOption["range"].get("min", 0)
+                if work_mode_value is not None:
+                    self._attr_available_modes.append(mode_name)
+                    self._attr_preset_modes_mapping_set[mode_name] = {
+                        "workMode": work_mode_value,
+                        "modeValue": range_val,
+                    }
+                    _LOGGER.debug(
+                        "%s - %s: Adding range mode %s: workMode=%s, modeValue=%s",
+                        self._api_id,
+                        self._identifier,
+                        mode_name,
+                        work_mode_value,
+                        range_val,
+                    )
+            elif "defaultValue" in valueOption:
+                # Default-value mode
+                default_val = valueOption["defaultValue"]
+                if work_mode_value is not None:
+                    self._attr_available_modes.append(mode_name)
+                    self._attr_preset_modes_mapping_set[mode_name] = {
+                        "workMode": work_mode_value,
+                        "modeValue": default_val,
+                    }
+                    _LOGGER.debug(
+                        "%s - %s: Adding default mode %s: workMode=%s, modeValue=%s",
+                        self._api_id,
+                        self._identifier,
+                        mode_name,
+                        work_mode_value,
+                        default_val,
+                    )
+            elif "value" in valueOption:
+                # Flat value mode (legacy structure — name + explicit integer value)
+                if work_mode_value is not None:
+                    self._attr_available_modes.append(mode_name)
+                    self._attr_preset_modes_mapping_set[mode_name] = {
+                        "workMode": work_mode_value,
+                        "modeValue": valueOption["value"],
+                    }
+                    _LOGGER.debug(
+                        "%s - %s: Adding flat mode %s: workMode=%s, modeValue=%s",
+                        self._api_id,
+                        self._identifier,
+                        mode_name,
+                        work_mode_value,
+                        valueOption["value"],
+                    )
+            else:
+                _LOGGER.warning(
+                    "%s - %s: unrecognised modeValue structure for %s: %s",
+                    self._api_id,
+                    self._identifier,
+                    mode_name,
+                    valueOption,
                 )
 
     @property
