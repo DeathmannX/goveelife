@@ -12,6 +12,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
+    CONCENTRATION_PARTS_PER_MILLION,
     CONF_DEVICES,
     PERCENTAGE,
     STATE_UNKNOWN,
@@ -21,6 +22,7 @@ from homeassistant.core import (
     HomeAssistant,
     callback,
 )
+from homeassistant.helpers.entity import EntityCategory
 
 from .const import (
     CONF_COORDINATORS,
@@ -38,6 +40,10 @@ platform_device_types = [
     "devices.types.humidifier:devices.capabilities.property:sensorTemperature",
     "devices.types.dehumidifier:devices.capabilities.property:sensorHumidity",
     "devices.types.dehumidifier:devices.capabilities.property:sensorTemperature",
+    # Air quality monitors (H5140, CO2 monitors, etc.) — pure sensor devices
+    "devices.types.air_quality_monitor:.*",
+    # Air purifier read-only properties (airQuality, filterLifeTime on H7123, etc.)
+    "devices.types.air_purifier:devices.capabilities.property:.*",
 ]
 
 
@@ -125,6 +131,16 @@ class GoveeLifeSensor(GoveeLifePlatformEntity):
         elif self._capability_name == "sensorTemperature":
             self._attr_device_class = SensorDeviceClass.TEMPERATURE
             self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+        elif self._capability_name == "carbonDioxideConcentration":
+            self._attr_device_class = SensorDeviceClass.CO2
+            self._attr_native_unit_of_measurement = CONCENTRATION_PARTS_PER_MILLION
+        elif self._capability_name == "airQuality":
+            self._attr_device_class = SensorDeviceClass.AQI
+            self._attr_native_unit_of_measurement = None
+        elif self._capability_name == "filterLifeTime":
+            self._attr_device_class = None
+            self._attr_native_unit_of_measurement = PERCENTAGE
+            self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     @property
     def state_class(self) -> SensorStateClass | None:

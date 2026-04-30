@@ -36,6 +36,11 @@ platform_device_types = [
 # Map event instance names to appropriate HA binary sensor device classes.
 _EVENT_DEVICE_CLASS_MAP: dict[str, BinarySensorDeviceClass] = {
     "waterFullEvent": BinarySensorDeviceClass.PROBLEM,
+    # Air quality monitor threshold alerts
+    "co2AlarmEvent": BinarySensorDeviceClass.GAS,
+    # Ice maker state events
+    "iceBucketFullEvent": BinarySensorDeviceClass.PROBLEM,
+    "iceTrayEmptyEvent": BinarySensorDeviceClass.PROBLEM,
 }
 
 
