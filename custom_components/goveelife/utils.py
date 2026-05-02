@@ -291,22 +291,48 @@ async def async_GoveeAPI_ControlDevice(
         _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: r = %s", entry_id, r)
         if isinstance(r, int) and return_status_code:
             return r
-        if not isinstance(r, int) and r.get("capability", None) is not None:
-            entry_data.setdefault(CONF_STATE, {})
-            d = device_cfg.get("device")
-            new_cap = r["capability"]
-            v = new_cap.pop("value")
-            new_cap["state"] = {"value": v}
-            for cap in entry_data[CONF_STATE][d]["capabilities"]:
-                if cap["type"] == new_cap["type"] and cap["instance"] == new_cap["instance"]:
-                    entry_data[CONF_STATE][d]["capabilities"].remove(cap)
-                    entry_data[CONF_STATE][d]["capabilities"].append(new_cap)
-                    _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: updated old capability state: %s", entry_id, cap)
-                    _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: with new capability state: %s", entry_id, new_cap)
-                    return True
+        if isinstance(r, int):
+            # Non-200 status code returned — API rejected the command
+            return False
+        if r is None:
+            _LOGGER.warning("%s - async_GoveeAPI_ControlDevice: API returned None", entry_id)
+            return False
+
+        # API call succeeded — attempt best-effort cache update
+        if r.get("capability") is not None:
+            try:
+                entry_data.setdefault(CONF_STATE, {})
+                d = device_cfg.get("device")
+                new_cap = r["capability"]
+                v = new_cap.pop("value")
+                new_cap["state"] = {"value": v}
+                cache_updated = False
+                for cap in entry_data[CONF_STATE][d]["capabilities"]:
+                    if cap["type"] == new_cap["type"] and cap["instance"] == new_cap["instance"]:
+                        entry_data[CONF_STATE][d]["capabilities"].remove(cap)
+                        entry_data[CONF_STATE][d]["capabilities"].append(new_cap)
+                        _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: updated old capability state: %s", entry_id, cap)
+                        _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: with new capability state: %s", entry_id, new_cap)
+                        cache_updated = True
+                        break
+                if not cache_updated:
+                    _LOGGER.debug(
+                        "%s - async_GoveeAPI_ControlDevice: no matching cap in cache for type=%s instance=%s — skipping cache update",
+                        entry_id,
+                        new_cap.get("type"),
+                        new_cap.get("instance"),
+                    )
+            except Exception as cache_err:
+                _LOGGER.debug(
+                    "%s - async_GoveeAPI_ControlDevice: cache update failed (non-fatal): %s",
+                    entry_id,
+                    str(cache_err),
+                )
         else:
-            _LOGGER.warning("%s - async_GoveeAPI_ControlDevice: unhandled api return = %s", entry_id, r)
-        return False
+            _LOGGER.debug("%s - async_GoveeAPI_ControlDevice: response has no capability key — skipping cache update", entry_id)
+
+        # Return True as long as the API accepted the command
+        return True
 
     except Exception as e:
         _LOGGER.error(
