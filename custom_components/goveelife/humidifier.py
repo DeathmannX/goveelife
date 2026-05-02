@@ -85,6 +85,7 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
         self._attr_available_modes = []
         self._attr_preset_modes_mapping = {}
         self._attr_preset_modes_mapping_set = {}
+        self._humidity_range_precision = 1
         super().__init__(hass, entry, coordinator, device_cfg, **kwargs)
 
     def _init_platform_specific(self, **kwargs):
@@ -132,6 +133,7 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
             elif cap["type"] == "devices.capabilities.range" and cap["instance"] == "humidity":
                 self._attr_min_humidity = cap["parameters"]["range"]["min"]
                 self._attr_max_humidity = cap["parameters"]["range"]["max"]
+                self._humidity_range_precision = cap["parameters"]["range"].get("precision", 1)
             else:
                 _LOGGER.debug(
                     "%s - %s: _init_platform_specific: cap unhandled: %s", self._api_id, self._identifier, cap
@@ -268,6 +270,29 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
             return None
 
     @property
+    def target_humidity(self) -> int | None:
+        """Return target humidity."""
+        value = GoveeAPI_GetCachedStateValue(
+            self.hass,
+            self._entry_id,
+            self._device_cfg.get("device"),
+            "devices.capabilities.range",
+            "humidity",
+        )
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "%s - %s: target_humidity: could not convert value to int: %s",
+                self._api_id,
+                self._identifier,
+                value,
+            )
+            return None
+
+    @property
     def is_on(self) -> bool:
         """Return true if entity is on."""
         value = GoveeAPI_GetCachedStateValue(
@@ -331,6 +356,26 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
                 e.__class__.__module__,
                 type(e).__name__,
             )
+
+    async def async_set_humidity(self, humidity: int) -> None:
+        """Set new target humidity."""
+        try:
+            humidity_value = int(round(humidity / self._humidity_range_precision) * self._humidity_range_precision)
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"Invalid humidity value: {humidity}") from err
+
+        if humidity_value < self.min_humidity or humidity_value > self.max_humidity:
+            raise ValueError(
+                f"Humidity {humidity_value} out of supported range {self.min_humidity}-{self.max_humidity}"
+            )
+
+        state_capability = {
+            "type": "devices.capabilities.range",
+            "instance": "humidity",
+            "value": humidity_value,
+        }
+        if await async_GoveeAPI_ControlDevice(self.hass, self._entry_id, self._device_cfg, state_capability):
+            self.async_write_ha_state()
 
     async def async_set_mode(self, preset_mode: str) -> None:
         """Set new target preset mode."""
