@@ -94,6 +94,7 @@ Once configured, the integration will discover all devices on your Govee account
 ### Humidifiers
 
 - On/off, target humidity, preset modes
+- **Target Humidity in AUTO Mode**: Supported for Lite models (H714E, H7140) by mapping HA humidity setpoints to the device's internal `workMode` parameters.
 - `sensor` entities for `sensorHumidity` and `sensorTemperature` where the device exposes them
 
 ### Diagnostics
