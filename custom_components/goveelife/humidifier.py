@@ -86,6 +86,7 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
         self._attr_preset_modes_mapping = {}
         self._attr_preset_modes_mapping_set = {}
         self._humidity_range_precision = 1
+        self._auto_work_mode = None
         super().__init__(hass, entry, coordinator, device_cfg, **kwargs)
 
     def _init_platform_specific(self, **kwargs):
@@ -128,6 +129,8 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
                     if capFieldWork["fieldName"] == "workMode":
                         for workOption in capFieldWork.get("options", []):
                             self._attr_preset_modes_mapping[workOption["name"]] = workOption["value"]
+                            if workOption["name"] == "Auto":
+                                self._auto_work_mode = workOption["value"]
                     elif capFieldWork["fieldName"] == "modeValue":
                         self._process_mode_value_options(capFieldWork.get("options", []))
             elif cap["type"] == "devices.capabilities.range" and cap["instance"] == "humidity":
@@ -272,6 +275,24 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
     @property
     def target_humidity(self) -> int | None:
         """Return target humidity."""
+        if self._device_cfg.get("sku") in ["H7140", "H714E"]:
+            work_mode_state = GoveeAPI_GetCachedStateValue(
+                self.hass,
+                self._entry_id,
+                self._device_cfg.get("device"),
+                "devices.capabilities.work_mode",
+                "workMode",
+            )
+            if (
+                isinstance(work_mode_state, dict)
+                and work_mode_state.get("workMode") == self._auto_work_mode
+                and work_mode_state.get("modeValue") is not None
+            ):
+                try:
+                    return int(work_mode_state.get("modeValue"))
+                except (TypeError, ValueError):
+                    pass
+
         value = GoveeAPI_GetCachedStateValue(
             self.hass,
             self._entry_id,
@@ -307,6 +328,27 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
     @property
     def mode(self) -> str | None:
         """Return current mode."""
+        value = GoveeAPI_GetCachedStateValue(
+            self.hass,
+            self._entry_id,
+            self._device_cfg.get("device"),
+            "devices.capabilities.work_mode",
+            "workMode",
+        )
+        if isinstance(value, dict):
+            work_mode = value.get("workMode")
+            mode_value = value.get("modeValue")
+
+            # Try to match the current state against our available modes
+            for mode_name, mapping in self._attr_preset_modes_mapping_set.items():
+                if mapping.get("workMode") == work_mode:
+                    # For special models in Auto mode, modeValue is target humidity and varies
+                    if mode_name == "Auto" and self._device_cfg.get("sku") in ["H7140", "H714E"]:
+                        return mode_name
+                    # For other modes/models, modeValue must also match
+                    if mapping.get("modeValue") == mode_value:
+                        return mode_name
+
         return MODE_AUTO
 
     async def async_turn_on(self, speed: str = None, mode: str = None, **kwargs) -> None:
@@ -368,6 +410,27 @@ class GoveeLifeHumidifier(HumidifierEntity, GoveeLifePlatformEntity):
             raise ValueError(
                 f"Humidity {humidity_value} out of supported range {self.min_humidity}-{self.max_humidity}"
             )
+
+        if self._device_cfg.get("sku") in ["H7140", "H714E"]:
+            work_mode_state = GoveeAPI_GetCachedStateValue(
+                self.hass,
+                self._entry_id,
+                self._device_cfg.get("device"),
+                "devices.capabilities.work_mode",
+                "workMode",
+            )
+            if isinstance(work_mode_state, dict) and work_mode_state.get("workMode") == self._auto_work_mode:
+                state_capability = {
+                    "type": "devices.capabilities.work_mode",
+                    "instance": "workMode",
+                    "value": {
+                        "workMode": self._auto_work_mode,
+                        "modeValue": humidity_value,
+                    },
+                }
+                if await async_GoveeAPI_ControlDevice(self.hass, self._entry_id, self._device_cfg, state_capability):
+                    self.async_write_ha_state()
+                return
 
         state_capability = {
             "type": "devices.capabilities.range",
