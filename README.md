@@ -148,3 +148,5 @@ Pull requests are welcome. Please:
 
 Maintained by [@disforw](https://github.com/disforw) with contributions from the community.  
 Uses the [Govee OpenAPI v2](https://developer.govee.com/).
+
+-
